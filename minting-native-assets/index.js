@@ -23,18 +23,32 @@ const path = require("node:path");
 process.env.CARDANO_NODE_SOCKET_PATH = "/tmp/cardano.sock";
 const CARDANO_PATH = "../cardano-node-8.0.0-macos/";
 const NETWORK = "--testnet-magic 1";
+const PREFIX = "..";
 
 // Configurations
-const tokenName = "DT";
-const tokenAmount = 1000000000;
+const tokenName = "3NGL";
+const tokenAmount = 100000;
+
 
 // Functions
-function command(cmd, check = null) {
-  if (check && statSync(path.join(tokenName, check)).isFile()) {
-    console.debug(`✘ Command skipped`);
-    return;
+function fileExist(filename) {
+  try {
+    if (filename && statSync(path.join(PREFIX, tokenName, filename)).isFile()) {
+      console.debug(`✘ Command skipped`);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
-  let output = execSync(cmd, { cwd: tokenName }).toString();
+}
+
+function command(cmd, check = null) {
+  if (fileExist(check)) return;
+  let output = execSync(cmd, {
+    cwd: path.join(PREFIX, tokenName),
+    encoding: "utf-8",
+  }).toString();
   console.debug("✔︎ Command executed with success");
   return output.trim();
 }
@@ -42,11 +56,11 @@ function command(cmd, check = null) {
 // Main
 (async () => {
   try {
-    mkdirSync(path.join(tokenName), { recursive: true });
+    mkdirSync(path.join(PREFIX, tokenName), { recursive: true });
 
     command(`${CARDANO_PATH}cardano-cli query tip ${NETWORK}`);
 
-    tokenBase16 = command(`echo -n "${tokenName}" | xxd -ps | tr -d '\n'`);
+    tokenBase16 = command(`echo "${tokenName}" | xxd -ps | tr -d '\n'`);
     console.debug(`ℹ︎ Token Base16 encoding: '${tokenBase16}'`);
 
     command(
@@ -64,7 +78,7 @@ function command(cmd, check = null) {
       "payment.addr"
     );
 
-    address = readFileSync(path.join(tokenName, "payment.addr"));
+    address = readFileSync(path.join(PREFIX, tokenName, "payment.addr"));
     console.debug(`ℹ︎ Address: '${address}'`);
 
     command(
@@ -74,7 +88,7 @@ function command(cmd, check = null) {
       "protocol.json"
     );
 
-    mkdirSync(path.join(tokenName, "policy"), { recursive: true });
+    mkdirSync(path.join(PREFIX, tokenName, "policy"), { recursive: true });
 
     command(
       `${CARDANO_PATH}cardano-cli address key-gen \\
@@ -90,7 +104,7 @@ function command(cmd, check = null) {
     console.debug(`ℹ︎ Key Hash: '${keyHash}'`);
 
     writeFileSync(
-      path.join(tokenName, "policy", "policy.script"),
+      path.join(PREFIX, tokenName, "policy", "policy.script"),
       JSON.stringify(
         {
           keyHash,
@@ -108,24 +122,29 @@ function command(cmd, check = null) {
       "policy/policyID"
     );
 
-    const utxo = command(`${CARDANO_PATH}cardano-cli query utxo \\
+    let utxo = command(`${CARDANO_PATH}cardano-cli query utxo \\
         --address ${address} ${NETWORK} | tail -n1
           `).replace(/ {2,}/g, " ");
 
-    if (utxo.split("\n").length <= 2)
+    if (utxo.split("\n").length !== 1)
       throw new Error("UTXO Might not be found.");
 
+    let suffix = "";
     const txHash = utxo.split(" ")[0].trim();
     const txIx = utxo.split(" ")[1].trim();
     const lovelace = utxo.split(" ")[2].trim();
+
+    if (utxo.split(" ").filter((v) => v === "+").length > 1)
+      suffix = utxo.split(" ").slice(4, -2).join(" ");
 
     console.debug(`ℹ︎ UTXO: '${utxo}'`);
     console.debug(`ℹ︎ Tx Hash: '${txHash}'`);
     console.debug(`ℹ︎ Tx Ix: '${txIx}'`);
     console.debug(`ℹ︎ Lovelace: '${lovelace}'`);
+    console.debug(`ℹ︎ Suffix: '${suffix}'`);
 
     let policyId = readFileSync(
-      path.join(tokenName, "policy", "policyID"),
+      path.join(PREFIX, tokenName, "policy", "policyID"),
       "utf-8"
     ).trim();
     let fee = 30000;
@@ -135,7 +154,7 @@ function command(cmd, check = null) {
       `${CARDANO_PATH}cardano-cli transaction build-raw \\
           --fee ${fee} \\
           --tx-in ${txHash}#${txIx} \\
-          --tx-out ${address}+${output}+"${tokenAmount} ${policyId}.${tokenBase16}" \\
+          --tx-out ${address}+${output}+"${tokenAmount} ${policyId}.${tokenBase16} ${suffix}" \\
           --mint "${tokenAmount} ${policyId}.${tokenBase16}" \\
           --minting-script-file policy/policy.script \\
           --out-file matx.raw`
@@ -158,7 +177,7 @@ function command(cmd, check = null) {
     command(`${CARDANO_PATH}cardano-cli transaction build-raw \\
           --fee ${fee} \\
           --tx-in ${txHash}#${txIx} \\
-          --tx-out ${address}+${output}+"${tokenAmount} ${policyId}.${tokenBase16}" \\
+          --tx-out ${address}+${output}+"${tokenAmount} ${policyId}.${tokenBase16} ${suffix}" \\
           --mint "${tokenAmount} ${policyId}.${tokenBase16}" \\
           --minting-script-file policy/policy.script \\
           --out-file matx.raw`);
@@ -175,14 +194,6 @@ function command(cmd, check = null) {
           --tx-file matx.signed \\
           ${NETWORK}`
     );
-
-    utxo = command(
-      `${CARDANO_PATH}cardano-cli query utxo \\
-          --address ${address} \\
-          ${NETWORK}`
-    );
-
-    console.debug(`ℹ︎ UTXO: ${utxo}`);
 
     console.log("✔︎ Last step, register your token.");
   } catch (e) {

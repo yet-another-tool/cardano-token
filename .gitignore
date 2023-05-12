@@ -2,12 +2,14 @@
 .DS_Store
 cardano-node-8.0.0-macos/
 DT/
+3NGL/
 *.json
 *.png
 token-metadata-creator
 *.skey
 policy.json
 tokens.sh
+*.backup
 
 # Allowed 
 !package.json

@@ -1,0 +1,15 @@
+# My local files.
+.DS_Store
+cardano-node-8.0.0-macos/
+DT/
+*.json
+*.png
+token-metadata-creator
+*.skey
+policy.json
+tokens.sh
+
+# Allowed 
+!package.json
+!package-lock.json
+
